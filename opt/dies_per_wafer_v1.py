@@ -196,24 +196,24 @@ class DiesPerWafer(ABC):
             N1 = math.floor(-fit1.fun)
             N2 = math.floor(-fit2.fun)
             if N0 == max((N0, N1, N2)):
-                fittype = 0
+                fit_type = 0
                 fit = fit0
             elif N1 == max((N0, N1, N2)):
-                fittype = 1
+                fit_type = 1
                 fit = fit1
             elif N2 == max((N0, N1, N2)):
-                fittype = 2
+                fit_type = 2
                 fit = fit2
         end = time.time()
         Nfit = math.floor(-fit.fun)
 
-        fit_offsets = trueoffsets(fit.x, fittype)
-        fit_V = constructV(fit_offsets, fittype)
+        fit_offsets = trueoffsets(fit.x, fit_type)
+        fit_V = constructV(fit_offsets, fit_type)
         fit_valid = np.tile(np.all(fit_V <= ewr, axis=0), [4, 1, 1])
         offsets_test = fit_offsets
 
         def Rmax(offsets, ft, validmask):
-            if fittype == 0:
+            if fit_type == 0:
                 V = constructV(offsets, ft)
             else:
                 offsets_test[0] = offsets  # just 1 offset
@@ -221,23 +221,23 @@ class DiesPerWafer(ABC):
             return V[validmask].max()
 
         print("\nCentering output:")
-        if fittype == 0:
+        if fit_type == 0:
             fit2 = optimize.minimize(
                 Rmax,
                 fit_offsets,
                 bounds=[(0, (width + x_spacing) / 2), (0, (height + y_spacing) / 2)],
-                args=(fittype, fit_valid),
+                args=(fit_type, fit_valid),
             )
             centered_offsets = fit2.x
-        elif fittype == 1:
+        elif fit_type == 1:
             fit2 = optimize.minimize_scalar(
-                Rmax, bounds=(0, (height + y_spacing) / 2), args=(fittype, fit_valid)
+                Rmax, bounds=(0, (height + y_spacing) / 2), args=(fit_type, fit_valid)
             )
             centered_offsets = fit_offsets
             centered_offsets[0] = fit2.x
-        elif fittype == 2:
+        elif fit_type == 2:
             fit2 = optimize.minimize_scalar(
-                Rmax, bounds=(0, (width + x_spacing) / 2), args=(fittype, fit_valid)
+                Rmax, bounds=(0, (width + x_spacing) / 2), args=(fit_type, fit_valid)
             )
             centered_offsets = fit_offsets
             centered_offsets[0] = fit2.x
@@ -251,13 +251,13 @@ class DiesPerWafer(ABC):
         print(min_diameter)
         area_utilization = Nfit * width * height * 4 * wafer_diameter**-2 / np.pi
 
-        self.Xcen, self.Ycen = calcXYcen(final_offsets, fittype)
-        V = constructV(final_offsets, fittype)
+        self.Xcen, self.Ycen = calcXYcen(final_offsets, fit_type)
+        V = constructV(final_offsets, fit_type)
         valid = np.all(V <= ewr, axis=0)
         self.partial = np.logical_and(np.any(V <= ewr, axis=0), np.logical_not(valid))
 
-        Xcen, Ycen = calcXYcen(final_offsets, fittype)
-        V = constructV(final_offsets, fittype)
+        Xcen, Ycen = calcXYcen(final_offsets, fit_type)
+        V = constructV(final_offsets, fit_type)
         valid = np.all(V <= ewr, axis=0)
         partial = np.logical_and(np.any(V <= ewr, axis=0), np.logical_not(valid))
 
