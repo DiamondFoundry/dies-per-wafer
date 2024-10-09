@@ -1,3 +1,9 @@
 steps:
 - name: 'gcr.io/cloud-builders/gcloud'
   args: ['functions', 'deploy', 'dies-per-wafer', '--trigger-http', '--source=.', '--region', 'us-west1', '--runtime', 'python310', '--entry-point', 'cloudFunctionEntrypoint']
+- name: 'gcr.io/cloud-builders/docker'
+  script: |
+    docker build -t us-west1-docker.pkg.dev/$PROJECT_ID/df-ar/dies-per-wafer-image .
+  automapSubstitutions: true
+images:
+- 'us-west1-docker.pkg.dev/$PROJECT_ID/df-ar/dies-per-wafer-image'
