@@ -12,29 +12,35 @@ import matplotlib.pyplot as plt
 plt.ioff()
 
 
-class DiesPerWafer(ABC):
-    def __init__(self) -> None:
+class DiesPerWaferCalculator(ABC):
+    def __init__(self, 
+                 width,
+                height,
+                xspacing,
+                yspacing,
+                waferdiameter,
+                edgeexclusionwidth,
+                ft_grid,
+                searchdepth,
+                symmetric,
+                ft_ShiftRows, 
+                ft_ShiftCols,
+                ft_ShiftRot) -> None:
         super().__init__()
 
-        # defaults
-        self.width_default = 20
-        self.height_default = ''
-        self.xspacing_default = 1.0
-        self.yspacing_default = ''
-        self.waferdiameter_default = 200
-        self.edgeexclusionwidth_default = 1
+        self.width = width
+        self.height = height
+        self.xspacing = xspacing
+        self.yspacing = yspacing
+        self.waferdiameter = waferdiameter
+        self.edgeexclusionwidth = edgeexclusionwidth
+        self.ft_grid = ft_grid
+        self.searchdepth = searchdepth
+        self.symmetric = symmetric
+        self.ft_ShiftRows = ft_ShiftRows
+        self.ft_ShiftCols = ft_ShiftCols
+        self.ft_ShiftRot = ft_ShiftRot
 
-        #self.fit_type_default = 3  # 0-indexed from top
-        self.searchdepth_default = 0
-
-        #select default fit checks with True/False
-        self.check_grid_default=True
-        self.check_ShiftRows_default=True
-        self.check_ShiftCols_default=True
-        self.check_ShiftRot_default=False
-
-        self.check_symmetric_default=False
-        #%% other options
         self.allow_rotation=True
 
         self.no_local_search_shift=True #no need for local search when output is integer
@@ -47,178 +53,170 @@ class DiesPerWafer(ABC):
         self.maxiter_shift1=10000
         self.maxiter_shift2=60000
 
-    def fit(
-        self,
-        width=None,
-        height=None,
-        xspacing=None,
-        yspacing=None,
-        waferdiameter=None,
-        edgeexclusionwidth=None,
-        ft_grid=None,
-        searchdepth=None,
-        symmetric=None,
-        ft_ShiftRows=None, 
-        ft_ShiftCols=None,
-        ft_ShiftRot=None
-    ):
+        ewr=self.waferdiameter/2-self.edgeexclusionwidth
+        self.ewr = ewr
+    #%% find best solution
+        self.Nx=math.ceil(ewr/self.width) #spacing ignored
+        self.Ny=math.ceil(ewr/self.height)
+        self.Nmax=max((self.Nx,self.Ny))
+        self.Xoff, self.Yoff=np.meshgrid(range(-self.Nx,self.Nx+1),range(-self.Ny,self.Ny+1),indexing='ij') #grids of values [-Nx,...,Nx],[-Ny,...,Ny]
+        self.Xoff2,self.Yoff2=np.meshgrid(range(-self.Nmax,self.Nmax+1),range(-self.Nmax,self.Nmax+1),indexing='ij') #grid for shift&rotate
 
-        if searchdepth==0:
+
+    def CalculatePositions(self,offsets,ft): #return Xcorner,Ycorner, Xextent, Yextent 
+        if ft==0:
+            if self.symmetric:
+                return ((offsets[0]>0.5)*(self.width+self.xspacing)/2+self.Xoff*(self.width+self.xspacing)-self.width/2,
+                        (offsets[1]>0.5)*(self.height+self.yspacing)/2+self.Yoff*(self.height+self.yspacing)-self.height/2,
+                        self.width*np.ones((2*self.Nx+1,2*self.Ny+1)),
+                        self.height*np.ones((2*self.Nx+1,2*self.Ny+1)))
+            else:
+                return (offsets[0]+self.Xoff*(self.width+self.xspacing)-self.width/2,
+                        offsets[1]+self.Yoff*(self.height+self.yspacing)-self.height/2,
+                        self.width*np.ones((2*self.Nx+1,2*self.Ny+1)),
+                        self.height*np.ones((2*self.Nx+1,2*self.Ny+1)))
+        elif ft==1:
+            if self.symmetric:
+                if offsets[:1]<0.5: #center row unique
+                    mirror_offset=np.concatenate((np.flip(offsets[2:]),offsets[1:]))
+                else: #center row copied
+                    mirror_offset=np.concatenate((np.flip(offsets[1:-1]),offsets[1:]))
+                xoffsets=(mirror_offset>0.5)*(self.width+self.xspacing)/2
+                yoffset=(offsets[:1]>0.5)*(self.height+self.yspacing)/2
+            else:
+                xoffsets=(offsets[1:]>0.5)*(self.width+self.xspacing)/2
+                yoffset=offsets[0]
+            return (np.tile(xoffsets, (2*self.Nx+1,1))+self.Xoff*(self.width+self.xspacing)-self.width/2,
+                    yoffset+self.Yoff*(self.height+self.yspacing)-self.height/2,
+                    self.width*np.ones((2*self.Nx+1,2*self.Ny+1)),
+                    self.height*np.ones((2*self.Nx+1,2*self.Ny+1)))
+        elif ft==2:
+            if self.symmetric:
+                if offsets[:1]<0.5: #center col unique
+                    mirror_offset=np.concatenate((np.flip(offsets[2:]),offsets[1:]))
+                else: #center col copied
+                    mirror_offset=np.concatenate((np.flip(offsets[1:-1]),offsets[1:]))
+                yoffsets=(mirror_offset>0.5)*(self.height+self.yspacing)/2
+                xoffset=(offsets[:1]>0.5)*(self.width+self.xspacing)/2
+            else:
+                yoffsets=(offsets[1:]>0.5)*(self.height+self.yspacing)/2
+                xoffset=offsets[0]                
+            return (xoffset+self.Xoff*(self.width+self.xspacing)-self.width/2,
+                    np.tile(yoffsets, (2*self.Ny+1,1)).transpose()+self.Yoff*(self.height+self.yspacing)-self.height/2,
+                    self.width*np.ones((2*self.Nx+1,2*self.Ny+1)),
+                    self.height*np.ones((2*self.Nx+1,2*self.Ny+1)))   
+        elif ft==3:
+            if self.symmetric:
+                if offsets[:1]<0.5: #center row unique
+                    xshifted_bool=np.concatenate((np.flip(offsets[2:self.Nmax+2]),offsets[1:self.Nmax+2]))>0.5
+                    rotated_bool=np.concatenate((np.flip(offsets[self.Nmax+3:]),offsets[self.Nmax+2:]))>0.5
+                else: #center row copied
+                    xshifted_bool=np.concatenate((np.flip(offsets[1:self.Nmax+1]),offsets[1:self.Nmax+2]))>0.5
+                    rotated_bool=np.concatenate((np.flip(offsets[self.Nmax+2:-1]),offsets[self.Nmax+2:]))>0.5
+                yoffset0=(offsets[0]>0.5)*((self.height*~rotated_bool[self.Nmax]+self.width*rotated_bool[self.Nmax])+self.yspacing)/2
+            else:
+                xshifted_bool=offsets[1:2*self.Nmax+2]>0.5
+                rotated_bool=offsets[2*self.Nmax+2:]>0.5
+                yoffset0=offsets[0]
+            xextent=~rotated_bool*self.width+rotated_bool*self.height #1D
+            yextent=rotated_bool*self.width+~rotated_bool*self.height #1D
+            xoffset0=xshifted_bool*self.xspacing/2-~xshifted_bool*xextent/2 #1D
+            Rsum=np.zeros(2*self.Nmax+1) #1D
+            Rsum[self.Nmax+1:]=rotated_bool[self.Nmax:-1].cumsum()
+            Rsum[:self.Nmax]=-np.flip(np.flip(rotated_bool[:self.Nmax]).cumsum())
+            notRsum=np.arange(-self.Nmax,self.Nmax+1)-Rsum
+            yoffsets=yoffset0+self.yspacing*np.arange(-self.Nmax,self.Nmax+1)-\
+                (self.height*~rotated_bool[self.Nmax]+self.width*rotated_bool[self.Nmax])/2+\
+                Rsum*self.width+notRsum*self.height
+            R=np.tile(rotated_bool, (2*self.Nmax+1,1))
+            return(np.tile(xoffset0, (2*self.Nmax+1,1))+self.Xoff2*(~R*self.width+R*self.height+self.xspacing),
+                np.tile(yoffsets, (2*self.Nmax+1,1)),
+                np.tile(xextent,(2*self.Nmax+1,1)),
+                np.tile(yextent,(2*self.Nmax+1,1)))   
+    
+    def constructV2(self, offsets,ft): #return distance^2 of each corner from center of wafer
+        Xcorner,Ycorner, Xextent, Yextent = self.CalculatePositions(offsets,ft)
+        return np.stack((Xcorner**2+Ycorner**2,
+                        (Xcorner+Xextent)**2+Ycorner**2,
+                        Xcorner**2+(Ycorner+Yextent)**2,
+                        (Xcorner+Xextent)**2+(Ycorner+Yextent)**2))
+    
+    def gridwithpartialscore(self, offsets,ft):
+        V=self.constructV2(offsets,ft)
+        valid=np.all(V<=self.ewr**2,axis=0)
+        PS=1-np.sum(np.clip(V**0.5-self.ewr,0,np.inf), axis=0)/4/(self.width**2+self.height**2)**0.5
+        partial_score=max(PS[~valid])
+        return -(valid.sum()+partial_score)
+    
+    def countfulldies(self, offsets,ft):
+        V=self.constructV2(offsets,ft)
+        valid=np.all(V<=self.ewr**2,axis=0)
+        return -valid.sum()
+
+    def fit(self):
+        
+        if self.searchdepth==0:
             maxiter_grid=self.maxiter_grid0
             maxiter_shift=self.maxiter_shift0
-        elif searchdepth==1:
+        elif self.searchdepth==1:
             maxiter_grid=self.maxiter_grid1
             maxiter_shift=self.maxiter_shift1
-        elif searchdepth==2:
+        elif self.searchdepth==2:
             maxiter_grid=self.maxiter_grid2
             maxiter_shift=self.maxiter_shift2
-        ewr=waferdiameter/2-edgeexclusionwidth
-    #%% find best solution
-        Nx=math.ceil(ewr/width) #spacing ignored
-        Ny=math.ceil(ewr/height)
-        Nmax=max((Nx,Ny))
-        Xoff,Yoff=np.meshgrid(range(-Nx,Nx+1),range(-Ny,Ny+1),indexing='ij') #grids of values [-Nx,...,Nx],[-Ny,...,Ny]
-        Xoff2,Yoff2=np.meshgrid(range(-Nmax,Nmax+1),range(-Nmax,Nmax+1),indexing='ij') #grid for shift&rotate
-
-        def CalculatePositions(offsets,ft): #return Xcorner,Ycorner, Xextent, Yextent 
-            if ft==0:
-                if symmetric:
-                    return ((offsets[0]>0.5)*(width+xspacing)/2+Xoff*(width+xspacing)-width/2,
-                            (offsets[1]>0.5)*(height+yspacing)/2+Yoff*(height+yspacing)-height/2,
-                            width*np.ones((2*Nx+1,2*Ny+1)),
-                            height*np.ones((2*Nx+1,2*Ny+1)))
-                else:
-                    return (offsets[0]+Xoff*(width+xspacing)-width/2,
-                            offsets[1]+Yoff*(height+yspacing)-height/2,
-                            width*np.ones((2*Nx+1,2*Ny+1)),
-                            height*np.ones((2*Nx+1,2*Ny+1)))
-            elif ft==1:
-                if symmetric:
-                    if offsets[:1]<0.5: #center row unique
-                        mirror_offset=np.concatenate((np.flip(offsets[2:]),offsets[1:]))
-                    else: #center row copied
-                        mirror_offset=np.concatenate((np.flip(offsets[1:-1]),offsets[1:]))
-                    xoffsets=(mirror_offset>0.5)*(width+xspacing)/2
-                    yoffset=(offsets[:1]>0.5)*(height+yspacing)/2
-                else:
-                    xoffsets=(offsets[1:]>0.5)*(width+xspacing)/2
-                    yoffset=offsets[0]
-                return (np.tile(xoffsets, (2*Nx+1,1))+Xoff*(width+xspacing)-width/2,
-                        yoffset+Yoff*(height+yspacing)-height/2,
-                        width*np.ones((2*Nx+1,2*Ny+1)),
-                        height*np.ones((2*Nx+1,2*Ny+1)))
-            elif ft==2:
-                if symmetric:
-                    if offsets[:1]<0.5: #center col unique
-                        mirror_offset=np.concatenate((np.flip(offsets[2:]),offsets[1:]))
-                    else: #center col copied
-                        mirror_offset=np.concatenate((np.flip(offsets[1:-1]),offsets[1:]))
-                    yoffsets=(mirror_offset>0.5)*(height+yspacing)/2
-                    xoffset=(offsets[:1]>0.5)*(width+xspacing)/2
-                else:
-                    yoffsets=(offsets[1:]>0.5)*(height+yspacing)/2
-                    xoffset=offsets[0]                
-                return (xoffset+Xoff*(width+xspacing)-width/2,
-                        np.tile(yoffsets, (2*Ny+1,1)).transpose()+Yoff*(height+yspacing)-height/2,
-                        width*np.ones((2*Nx+1,2*Ny+1)),
-                        height*np.ones((2*Nx+1,2*Ny+1)))   
-            elif ft==3:
-                if symmetric:
-                    if offsets[:1]<0.5: #center row unique
-                        xshifted_bool=np.concatenate((np.flip(offsets[2:Nmax+2]),offsets[1:Nmax+2]))>0.5
-                        rotated_bool=np.concatenate((np.flip(offsets[Nmax+3:]),offsets[Nmax+2:]))>0.5
-                    else: #center row copied
-                        xshifted_bool=np.concatenate((np.flip(offsets[1:Nmax+1]),offsets[1:Nmax+2]))>0.5
-                        rotated_bool=np.concatenate((np.flip(offsets[Nmax+2:-1]),offsets[Nmax+2:]))>0.5
-                    yoffset0=(offsets[0]>0.5)*((height*~rotated_bool[Nmax]+width*rotated_bool[Nmax])+yspacing)/2
-                else:
-                    xshifted_bool=offsets[1:2*Nmax+2]>0.5
-                    rotated_bool=offsets[2*Nmax+2:]>0.5
-                    yoffset0=offsets[0]
-                xextent=~rotated_bool*width+rotated_bool*height #1D
-                yextent=rotated_bool*width+~rotated_bool*height #1D
-                xoffset0=xshifted_bool*xspacing/2-~xshifted_bool*xextent/2 #1D
-                Rsum=np.zeros(2*Nmax+1) #1D
-                Rsum[Nmax+1:]=rotated_bool[Nmax:-1].cumsum()
-                Rsum[:Nmax]=-np.flip(np.flip(rotated_bool[:Nmax]).cumsum())
-                notRsum=np.arange(-Nmax,Nmax+1)-Rsum
-                yoffsets=yoffset0+yspacing*np.arange(-Nmax,Nmax+1)-\
-                    (height*~rotated_bool[Nmax]+width*rotated_bool[Nmax])/2+\
-                    Rsum*width+notRsum*height
-                R=np.tile(rotated_bool, (2*Nmax+1,1))
-                return(np.tile(xoffset0, (2*Nmax+1,1))+Xoff2*(~R*width+R*height+xspacing),
-                    np.tile(yoffsets, (2*Nmax+1,1)),
-                    np.tile(xextent,(2*Nmax+1,1)),
-                    np.tile(yextent,(2*Nmax+1,1)))   
-        def constructV2(offsets,ft): #return distance^2 of each corner from center of wafer
-            Xcorner,Ycorner, Xextent, Yextent = CalculatePositions(offsets,ft)
-            return np.stack((Xcorner**2+Ycorner**2,
-                            (Xcorner+Xextent)**2+Ycorner**2,
-                            Xcorner**2+(Ycorner+Yextent)**2,
-                            (Xcorner+Xextent)**2+(Ycorner+Yextent)**2))
-        def gridwithpartialscore(offsets,ft):
-            V=constructV2(offsets,ft)
-            valid=np.all(V<=ewr**2,axis=0)
-            PS=1-np.sum(np.clip(V**0.5-ewr,0,np.inf), axis=0)/4/(width**2+height**2)**0.5
-            partial_score=max(PS[~valid])
-            return -(valid.sum()+partial_score)
-        def countfulldies(offsets,ft):
-            V=constructV2(offsets,ft)
-            valid=np.all(V<=ewr**2,axis=0)
-            return -valid.sum()
-        
         Nfits=np.zeros(4)
+
         start = time.time()
         start2 = start
-        if ft_grid:
-            if symmetric:
+        if self.ft_grid:
+            if self.symmetric:
                 #there are literally only 4 solutions in this case, so this is kinda dumb
-                fit0=optimize.dual_annealing(countfulldies, [(0,1), (0,1)],
+                fit0=optimize.dual_annealing(self.countfulldies, [(0,1), (0,1)],
                                             args=(0,),maxiter=maxiter_grid)
             else:
-                fit0=optimize.dual_annealing(gridwithpartialscore, [(0,(width+xspacing)/2), (0, (height+yspacing)/2)],
+                fit0=optimize.dual_annealing(self.gridwithpartialscore, [(0,(self.width+self.xspacing)/2), (0, (self.height+self.yspacing)/2)],
                                             args=(0,),maxiter=maxiter_grid)
             print('Uniform Grid fit output:')
             print(fit0)
             print('Uniform Grid time: {:.2f} sec'.format(time.time()-start2))
             Nfits[0]=math.floor(-fit0.fun)
             start2=time.time()
-        if ft_ShiftRows:
-            if symmetric:
-                fit1= optimize.dual_annealing(countfulldies,
-                                                    [(0, 1)]+[(0,1) for _ in range(0,Ny+1)],
+        if self.ft_ShiftRows:
+            if self.symmetric:
+                fit1= optimize.dual_annealing(self.countfulldies,
+                                                    [(0, 1)]+[(0,1) for _ in range(0,self.Ny+1)],
                                                     args=(1,),maxiter=maxiter_shift,no_local_search=self.no_local_search_shift)
             else:
-                fit1= optimize.dual_annealing(countfulldies,
-                                                    [(0, (height+yspacing)/2)]+[(0,1) for _ in range(-Ny,Ny+1)],
+                fit1= optimize.dual_annealing(self.countfulldies,
+                                                    [(0, (self.height+self.yspacing)/2)]+[(0,1) for _ in range(-self.Ny,self.Ny+1)],
                                                     args=(1,),maxiter=maxiter_shift,no_local_search=self.no_local_search_shift)    
             print('Shift Rows fit output:')
             print(fit1)
             print('Shift Rows time: {:.2f} sec'.format(time.time()-start2))
             Nfits[1]=math.floor(-fit1.fun)
             start2=time.time()
-        if ft_ShiftCols:
-            if symmetric:
-                fit2= optimize.dual_annealing(countfulldies,
-                                                    [(0, 1)]+[(0,1) for _ in range(0,Nx+1)],
+        if self.ft_ShiftCols:
+            if self.symmetric:
+                fit2= optimize.dual_annealing(self.countfulldies,
+                                                    [(0, 1)]+[(0,1) for _ in range(0,self.Nx+1)],
                                                     args=(2,),maxiter=maxiter_shift,no_local_search=self.no_local_search_shift)
             else:
-                fit2= optimize.dual_annealing(countfulldies,
-                                                    [(0, (width+xspacing)/2)]+[(0,1) for _ in range(-Nx,Nx+1)],
+                fit2= optimize.dual_annealing(self.countfulldies,
+                                                    [(0, (self.width+self.xspacing)/2)]+[(0,1) for _ in range(-self.Nx,self.Nx+1)],
                                                     args=(2,),maxiter=maxiter_shift,no_local_search=self.no_local_search_shift)
             print('Shift Columns fit output:')
             print(fit2)
             print('Shift Columns time: {:.2f} sec'.format(time.time()-start2))
             Nfits[2]=math.floor(-fit2.fun)
             start2=time.time()
-        if ft_ShiftRot:
-            if symmetric:
-                fit3= optimize.dual_annealing(countfulldies,
-                                                    [(0, 1)]+[(0,1) for _ in range(2*Nmax+2)],
+        if self.ft_ShiftRot:
+            if self.symmetric:
+                fit3= optimize.dual_annealing(self.countfulldies,
+                                                    [(0, 1)]+[(0,1) for _ in range(2*self.Nmax+2)],
                                                     args=(3,),maxiter=maxiter_shift,no_local_search=self.no_local_search_shift)
             else:
-                fit3= optimize.dual_annealing(countfulldies,
-                                                    [(0, (max((height,width))+xspacing)/2)]+[(0,1) for _ in range(4*Nmax+2)],
+                fit3= optimize.dual_annealing(self.countfulldies,
+                                                    [(0, (max((self.height,self.width))+self.xspacing)/2)]+[(0,1) for _ in range(4*self.Nmax+2)],
                                                     args=(3,),maxiter=maxiter_shift,no_local_search=self.no_local_search_shift)
             print('Shifted & Rotated fit output:')
             print(fit3)
@@ -240,272 +238,302 @@ class DiesPerWafer(ABC):
         Nfit=math.floor(-fit.fun)
     #%% center solution (if not symmetric)
         fit_offsets=fit.x
-        fit_V=constructV2(fit_offsets,fittype)
-        fit_valid=np.tile(np.all(fit_V<=ewr**2,axis=0),[4,1,1]) #mask of valid points in V2
-        if symmetric:
+        fit_V=self.constructV2(fit_offsets,fittype)
+        fit_valid=np.tile(np.all(fit_V<=self.ewr**2,axis=0),[4,1,1]) #mask of valid points in V2
+        if self.symmetric:
             final_offsets=fit.x
-            min_diameter=2*(fit_V[fit_valid].max()**0.5+edgeexclusionwidth)
+            min_diameter=2*(fit_V[fit_valid].max()**0.5+self.edgeexclusionwidth)
         else:
             offsets_test=fit_offsets
             def Rmax(offsets,ft,validmask):
                 if fittype==0:
-                    V=constructV2(offsets,ft)
+                    V=self.constructV2(offsets,ft)
                 else:
                     offsets_test[0]=offsets #just 1 offset
-                    V=constructV2(offsets_test,ft)
+                    V=self.constructV2(offsets_test,ft)
                 return V[validmask].max()
             
             print('\nCentering output:')
             if fittype==0:
-                fit2 = optimize.minimize(Rmax,fit_offsets,bounds=[(0,(width+xspacing)/2), (0, (height+yspacing)/2)],
+                fit2 = optimize.minimize(Rmax,fit_offsets,bounds=[(0,(self.width+self.xspacing)/2), (0, (self.height+self.yspacing)/2)],
                                         args=(fittype,fit_valid))
                 centered_offsets=fit2.x
             elif fittype==1:
-                fit2 = optimize.minimize_scalar(Rmax,bounds=(0, (height+yspacing)/2),args=(fittype,fit_valid))
+                fit2 = optimize.minimize_scalar(Rmax,bounds=(0, (self.height+self.yspacing)/2),args=(fittype,fit_valid))
                 centered_offsets=fit_offsets
                 centered_offsets[0]=fit2.x
             elif fittype==2:
-                fit2 = optimize.minimize_scalar(Rmax,bounds=(0, (width+xspacing)/2),args=(fittype,fit_valid))
+                fit2 = optimize.minimize_scalar(Rmax,bounds=(0, (self.width+self.xspacing)/2),args=(fittype,fit_valid))
                 centered_offsets=fit_offsets
                 centered_offsets[0]=fit2.x
             elif fittype==3:
-                fit2 = optimize.minimize_scalar(Rmax,bounds=(0, (max((width,height))+yspacing)/2),args=(fittype,fit_valid))
+                fit2 = optimize.minimize_scalar(Rmax,bounds=(0, (max((self.width,self.height))+self.yspacing)/2),args=(fittype,fit_valid))
                 centered_offsets=fit_offsets
                 centered_offsets[0]=fit2.x
             print(fit2)
             final_offsets=centered_offsets
-            min_diameter=2*(fit2.fun**0.5+edgeexclusionwidth)
+            min_diameter=2*(fit2.fun**0.5+self.edgeexclusionwidth)
         print('\nFinal Offsets:')
         print(final_offsets)
         print('Solution diameter:')
         print(min_diameter)
-        area_utilization = Nfit*width*height*4*waferdiameter**-2/np.pi
+        area_utilization = Nfit*self.width*self.height*4*self.waferdiameter**-2/np.pi
 
-        Xcorner,Ycorner, Xextent, Yextent = CalculatePositions(final_offsets,fittype)
+        Xcorner,Ycorner, Xextent, Yextent = self.CalculatePositions(final_offsets,fittype)
         #Xcen,Ycen=calcXYcen(final_offsets,fittype)
-        V2=constructV2(final_offsets,fittype)
+        V2=self.constructV2(final_offsets,fittype)
 
-        ret = (area_utilization, min_diameter, start, end, Xcorner, Ycorner, Xextent, Yextent, ewr, fittype, V2, Nfit)
+        print(Xcorner.shape)
+        print(Ycorner.shape)
+        print(Xextent.shape)
+        print(Yextent.shape)
+
+        ret = (area_utilization, min_diameter, start, end, Xcorner, Ycorner, Xextent, Yextent, self.ewr, fittype, V2, Nfit)
         return ret 
-    
-    def run_ui(self):  
-        note='Note:\n'+\
-            'This program uses global optimzers to find potential\n'+\
-            'best solutions. This process is random and might\n'+\
-            'return a different number of dies when repeated. This\n'+\
-            'is generally only an issue when the best solution is\n'+\
-            'a very tight fit. Increasing search depth can help ensure\n'+\
-            'an optimal fit but Quick is generally recommended.'
-        #%% create window and frames
-        root = tk.Tk() # Create the root window
-        #root.wm_attributes('-topmost', True) #put window on top, annoying?
-        root.title('Dies Per Wafer v1.2') # Set window title
-        root.geometry('1200x900') # Set window size
 
-        frame1=tk.Frame(root)
-        frame1.grid(column = 1, row = 1,padx=50)
-        frame2=tk.Frame(root)
-        frame2.grid(column = 2, row = 1)
+def run_ui():  
+    #%% defalut values
+    width_default=20
+    height_default=''
+    xspacing_default=1.0
+    yspacing_default=''
+    waferdiameter_default=200
+    edgeexclusionwidth_default=1
 
-        #%% make plot axes
-        #fig, ax = plt.subplots(figsize=(8,8))
-        fig=plt.figure(figsize=(8,8))
-        ax=fig.add_axes((.05,.05,.9,.85))
-        canvas= FigureCanvasTkAgg(fig,master=frame2)
-        canvas.get_tk_widget().pack()
-        toolbar = NavigationToolbar2Tk (canvas,frame2,pack_toolbar=False)
-        toolbar.update()
-        toolbar.pack(anchor='w',fill=tk.X)
-        #%% input numbers   
-        r=1
-        label_inputdirections = tk.Label(frame1,text = 'Input Dimensions (use uniform units)')
-        label_inputdirections.grid(column = 1, row = r,pady=10, columnspan=2)
+    searchdepth_default=0
 
-        r+=1
-        label_width = tk.Label(frame1,text = 'die width')
-        label_width.grid(column = 1, row = r,sticky='E', ipadx=10)
-        width_s=tk.StringVar(value=str(self.width_default))
-        entry_width=tk.Entry(frame1,textvariable=width_s)
-        entry_width.grid(column = 2, row = r)
+    #select default fit checks with True/False
+    check_grid_default=True
+    check_ShiftRows_default=True
+    check_ShiftCols_default=True
+    check_ShiftRot_default=False
 
-        r+=1
-        label_height = tk.Label(frame1,text = 'die height*')
-        label_height.grid(column = 1, row = r,sticky='E', ipadx=10)
-        height_s=tk.StringVar(value=str(self.height_default))
-        entry_height=tk.Entry(frame1,textvariable=height_s)
-        entry_height.grid(column = 2, row = r)
+    check_symmetric_default=False
 
-        r+=1
-        label_xspacing = tk.Label(frame1,text = 'x spacing')
-        label_xspacing.grid(column = 1, row = r,sticky='E', ipadx=10)
-        xspacing_s=tk.StringVar(value=str(self.xspacing_default))
-        entry_xspacing=tk.Entry(frame1,textvariable=xspacing_s)
-        entry_xspacing.grid(column = 2, row = r)
+    note='Note:\n'+\
+        'This program uses global optimzers to find potential\n'+\
+        'best solutions. This process is random and might\n'+\
+        'return a different number of dies when repeated. This\n'+\
+        'is generally only an issue when the best solution is\n'+\
+        'a very tight fit. Increasing search depth can help ensure\n'+\
+        'an optimal fit but Quick is generally recommended.'
+    #%% create window and frames
+    root = tk.Tk() # Create the root window
+    #root.wm_attributes('-topmost', True) #put window on top, annoying?
+    root.title('Dies Per Wafer v1.2') # Set window title
+    root.geometry('1200x900') # Set window size
 
-        r+=1
-        label_yspacing = tk.Label(frame1,text = 'y spacing*')
-        label_yspacing.grid(column = 1, row = r,sticky='E', ipadx=10)
-        yspacing_s=tk.StringVar(value=str(self.yspacing_default))
-        entry_yspacing=tk.Entry(frame1,textvariable=yspacing_s)
-        entry_yspacing.grid(column = 2, row = r)
+    frame1=tk.Frame(root)
+    frame1.grid(column = 1, row = 1,padx=50)
+    frame2=tk.Frame(root)
+    frame2.grid(column = 2, row = 1)
 
-        r+=1
-        label_waferdiameter = tk.Label(frame1,text = 'wafer diameter')
-        label_waferdiameter.grid(column = 1, row = r,sticky='E', ipadx=10)
-        waferdiameter_s=tk.StringVar(value=str(self.waferdiameter_default))
-        entry_waferdiameter=tk.Entry(frame1,textvariable=waferdiameter_s)
-        entry_waferdiameter.grid(column = 2, row = r)
+    #%% make plot axes
+    #fig, ax = plt.subplots(figsize=(8,8))
+    fig=plt.figure(figsize=(8,8))
+    ax=fig.add_axes((.05,.05,.9,.85))
+    canvas= FigureCanvasTkAgg(fig,master=frame2)
+    canvas.get_tk_widget().pack()
+    toolbar = NavigationToolbar2Tk (canvas,frame2,pack_toolbar=False)
+    toolbar.update()
+    toolbar.pack(anchor='w',fill=tk.X)
+    #%% input numbers   
+    r=1
+    label_inputdirections = tk.Label(frame1,text = 'Input Dimensions (use uniform units)')
+    label_inputdirections.grid(column = 1, row = r,pady=10, columnspan=2)
 
-        r+=1
-        label_edgeexclusionwidth = tk.Label(frame1,text = 'edge exclusion width')
-        label_edgeexclusionwidth.grid(column = 1, row = r,sticky='E', ipadx=10)
-        edgeexclusionwidth_s=tk.StringVar(value=str(self.edgeexclusionwidth_default))
-        entry_edgeexclusionwidth=tk.Entry(frame1,textvariable=edgeexclusionwidth_s)
-        entry_edgeexclusionwidth.grid(column = 2, row = r)
+    r+=1
+    label_width = tk.Label(frame1,text = 'die width')
+    label_width.grid(column = 1, row = r,sticky='E', ipadx=10)
+    width_s=tk.StringVar(value=str(width_default))
+    entry_width=tk.Entry(frame1,textvariable=width_s)
+    entry_width.grid(column = 2, row = r)
 
-        r+=1
-        starnote = tk.Label(frame1,text = '* leave empty to inherit above value')
-        starnote.grid(column = 1, row = r,columnspan=2, ipadx=10)
+    r+=1
+    label_height = tk.Label(frame1,text = 'die height*')
+    label_height.grid(column = 1, row = r,sticky='E', ipadx=10)
+    height_s=tk.StringVar(value=str(height_default))
+    entry_height=tk.Entry(frame1,textvariable=height_s)
+    entry_height.grid(column = 2, row = r)
 
-        #%% make fit parameter selections
-        r+=1
-        spacer1 = tk.Label(frame1, text='')
-        spacer1.grid(column=1, row=r)
-        r+=1
-        label_fittype = tk.Label(frame1,text = 'Fit Types:')
-        label_fittype.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=60)
-        r+=1
-        boolvar_grid=tk.BooleanVar(value=self.check_grid_default)
-        check_grid = tk.Checkbutton(frame1, text='Uniform Grid',variable=boolvar_grid, onvalue=True, offvalue=False)
-        check_grid.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
-        r+=1
-        boolvar_ShiftRows=tk.BooleanVar(value=self.check_ShiftRows_default)
-        check_ShiftRows = tk.Checkbutton(frame1, text='Shift Rows',variable=boolvar_ShiftRows, onvalue=True, offvalue=False)
-        check_ShiftRows.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
-        r+=1
-        boolvar_ShiftCols=tk.BooleanVar(value=self.check_ShiftCols_default)
-        check_ShiftCols = tk.Checkbutton(frame1, text='Shift Columns',variable=boolvar_ShiftCols, onvalue=True, offvalue=False)
-        check_ShiftCols.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
-        r+=1
-        boolvar_ShiftRot=tk.BooleanVar(value=self.check_ShiftRot_default)
-        check_ShiftRot = tk.Checkbutton(frame1, text='Shift & Rotate Rows',variable=boolvar_ShiftRot, onvalue=True, offvalue=False)
-        check_ShiftRot.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
-        r+=1
-        spacer2 = tk.Label(frame1, text='')
-        spacer2.grid(column=1, row=r)
-        r+=1
-        boolvar_symmetry=tk.BooleanVar(value=self.check_symmetric_default)
-        check_symmetry = tk.Checkbutton(frame1, text='X & Y Mirror Symmetry',variable=boolvar_symmetry, onvalue=True, offvalue=False)
-        check_symmetry.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=60)
-        r+=1
-        spacer2 = tk.Label(frame1, text='')
-        spacer2.grid(column=1, row=r)
-        r+=1
-        label_fittype = tk.Label(frame1,text = 'Search Depth:')
-        label_fittype.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=60)
-        searchdepth_var = tk.IntVar(value=self.searchdepth_default)
-        MI0 = tk.Radiobutton(frame1, text='Quick', variable=searchdepth_var, value=0)
-        r+=1
-        MI0.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
-        MI1 = tk.Radiobutton(frame1, text='Thorough', variable=searchdepth_var, value=1)
-        r+=1
-        MI1.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
-        MI2 = tk.Radiobutton(frame1, text='Exhaustive', variable=searchdepth_var, value=2)
-        r+=1
-        MI2.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80) 
+    r+=1
+    label_xspacing = tk.Label(frame1,text = 'x spacing')
+    label_xspacing.grid(column = 1, row = r,sticky='E', ipadx=10)
+    xspacing_s=tk.StringVar(value=str(xspacing_default))
+    entry_xspacing=tk.Entry(frame1,textvariable=xspacing_s)
+    entry_xspacing.grid(column = 2, row = r)
 
-        #%% Gather user inputs (on button press)
-        def execute():
-            button_execute.config(relief='sunken')
-            extraoutput.set('searching...')
-            root.update()
-            print('\nnew fit...')
-            width=float(width_s.get())
-            try:
-                height=float(height_s.get())
-            except ValueError:
-                height=width
-            xspacing=float(xspacing_s.get())
-            try:
-                yspacing=float(yspacing_s.get())
-            except ValueError:
-                yspacing=xspacing
-            waferdiameter=float(waferdiameter_s.get())
-            edgeexclusionwidth=float(edgeexclusionwidth_s.get())
-            ft_grid=boolvar_grid.get()
-            ft_ShiftRows=boolvar_ShiftRows.get()
-            ft_ShiftCols=boolvar_ShiftCols.get()
-            ft_ShiftRot=boolvar_ShiftRot.get()
-            symmetric=boolvar_symmetry.get()
-            searchdepth=searchdepth_var.get()
+    r+=1
+    label_yspacing = tk.Label(frame1,text = 'y spacing*')
+    label_yspacing.grid(column = 1, row = r,sticky='E', ipadx=10)
+    yspacing_s=tk.StringVar(value=str(yspacing_default))
+    entry_yspacing=tk.Entry(frame1,textvariable=yspacing_s)
+    entry_yspacing.grid(column = 2, row = r)
 
-            area_utilization, min_diameter, start, end, Xcorner, Ycorner, Xextent, Yextent, ewr, fittype, V2, Nfit = self.fit(
-                width=width,
-                height=height,
-                xspacing=xspacing,
-                yspacing=yspacing,
-                waferdiameter=waferdiameter,
-                edgeexclusionwidth=edgeexclusionwidth,
-                ft_grid=ft_grid,
-                searchdepth=searchdepth,
-                symmetric=symmetric,
-                ft_ShiftRows=ft_ShiftRows, 
-                ft_ShiftCols=ft_ShiftCols,
-                ft_ShiftRot=ft_ShiftRot
-            )
+    r+=1
+    label_waferdiameter = tk.Label(frame1,text = 'wafer diameter')
+    label_waferdiameter.grid(column = 1, row = r,sticky='E', ipadx=10)
+    waferdiameter_s=tk.StringVar(value=str(waferdiameter_default))
+    entry_waferdiameter=tk.Entry(frame1,textvariable=waferdiameter_s)
+    entry_waferdiameter.grid(column = 2, row = r)
 
-            extraoutput.set('area utilization = {:.2%}\nminimum wafer diameter = {:.1f}\nsearch time: {:.2f} sec'\
-                .format(area_utilization,math.ceil(10*min_diameter)/10,end-start))
+    r+=1
+    label_edgeexclusionwidth = tk.Label(frame1,text = 'edge exclusion width')
+    label_edgeexclusionwidth.grid(column = 1, row = r,sticky='E', ipadx=10)
+    edgeexclusionwidth_s=tk.StringVar(value=str(edgeexclusionwidth_default))
+    entry_edgeexclusionwidth=tk.Entry(frame1,textvariable=edgeexclusionwidth_s)
+    entry_edgeexclusionwidth.grid(column = 2, row = r)
 
-            if all(~np.array([ft_grid,ft_ShiftRows,ft_ShiftCols,ft_ShiftRot])):
-                ax.clear()
-                canvas.draw()
-                extraoutput.set('No Fit Types Selected')
-                button_execute.config(relief='raised')
-                return
-            
+    r+=1
+    starnote = tk.Label(frame1,text = '* leave empty to inherit above value')
+    starnote.grid(column = 1, row = r,columnspan=2, ipadx=10)
 
-            valid=np.all(V2**0.5<=ewr,axis=0)
-            partial=np.logical_and(np.any(V2**0.5<=ewr,axis=0),np.logical_not(valid))
-            
+    #%% make fit parameter selections
+    r+=1
+    spacer1 = tk.Label(frame1, text='')
+    spacer1.grid(column=1, row=r)
+    r+=1
+    label_fittype = tk.Label(frame1,text = 'Fit Types:')
+    label_fittype.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=60)
+    r+=1
+    boolvar_grid=tk.BooleanVar(value=check_grid_default)
+    check_grid = tk.Checkbutton(frame1, text='Uniform Grid',variable=boolvar_grid, onvalue=True, offvalue=False)
+    check_grid.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
+    r+=1
+    boolvar_ShiftRows=tk.BooleanVar(value=check_ShiftRows_default)
+    check_ShiftRows = tk.Checkbutton(frame1, text='Shift Rows',variable=boolvar_ShiftRows, onvalue=True, offvalue=False)
+    check_ShiftRows.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
+    r+=1
+    boolvar_ShiftCols=tk.BooleanVar(value=check_ShiftCols_default)
+    check_ShiftCols = tk.Checkbutton(frame1, text='Shift Columns',variable=boolvar_ShiftCols, onvalue=True, offvalue=False)
+    check_ShiftCols.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
+    r+=1
+    boolvar_ShiftRot=tk.BooleanVar(value=check_ShiftRot_default)
+    check_ShiftRot = tk.Checkbutton(frame1, text='Shift & Rotate Rows',variable=boolvar_ShiftRot, onvalue=True, offvalue=False)
+    check_ShiftRot.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
+    r+=1
+    spacer2 = tk.Label(frame1, text='')
+    spacer2.grid(column=1, row=r)
+    r+=1
+    boolvar_symmetry=tk.BooleanVar(value=check_symmetric_default)
+    check_symmetry = tk.Checkbutton(frame1, text='X & Y Mirror Symmetry',variable=boolvar_symmetry, onvalue=True, offvalue=False)
+    check_symmetry.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=60)
+    r+=1
+    spacer2 = tk.Label(frame1, text='')
+    spacer2.grid(column=1, row=r)
+    r+=1
+    label_fittype = tk.Label(frame1,text = 'Search Depth:')
+    label_fittype.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=60)
+    searchdepth_var = tk.IntVar(value=searchdepth_default)
+    MI0 = tk.Radiobutton(frame1, text='Quick', variable=searchdepth_var, value=0)
+    r+=1
+    MI0.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
+    MI1 = tk.Radiobutton(frame1, text='Thorough', variable=searchdepth_var, value=1)
+    r+=1
+    MI1.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80)
+    MI2 = tk.Radiobutton(frame1, text='Exhaustive', variable=searchdepth_var, value=2)
+    r+=1
+    MI2.grid(column = 1, row = r, columnspan=2,sticky='W', ipadx=80) 
+
+    #%% Gather user inputs (on button press)
+    def execute():
+        button_execute.config(relief='sunken')
+        extraoutput.set('searching...')
+        root.update()
+        print('\nnew fit...')
+        width=float(width_s.get())
+        try:
+            height=float(height_s.get())
+        except ValueError:
+            height=width
+        xspacing=float(xspacing_s.get())
+        try:
+            yspacing=float(yspacing_s.get())
+        except ValueError:
+            yspacing=xspacing
+        waferdiameter=float(waferdiameter_s.get())
+        edgeexclusionwidth=float(edgeexclusionwidth_s.get())
+        ft_grid=boolvar_grid.get()
+        ft_ShiftRows=boolvar_ShiftRows.get()
+        ft_ShiftCols=boolvar_ShiftCols.get()
+        ft_ShiftRot=boolvar_ShiftRot.get()
+        symmetric=boolvar_symmetry.get()
+        searchdepth=searchdepth_var.get()
+
+        dpw = DiesPerWaferCalculator(
+            width=width,
+            height=height,
+            xspacing=xspacing,
+            yspacing=yspacing,
+            waferdiameter=waferdiameter,
+            edgeexclusionwidth=edgeexclusionwidth,
+            ft_grid=ft_grid,
+            searchdepth=searchdepth,
+            symmetric=symmetric,
+            ft_ShiftRows=ft_ShiftRows, 
+            ft_ShiftCols=ft_ShiftCols,
+            ft_ShiftRot=ft_ShiftRot
+        )
+
+        area_utilization, min_diameter, start, end, Xcorner, Ycorner, Xextent, Yextent, ewr, fittype, V2, Nfit = dpw.fit()
+
+        extraoutput.set('area utilization = {:.2%}\nminimum wafer diameter = {:.1f}\nsearch time: {:.2f} sec'\
+            .format(area_utilization,math.ceil(10*min_diameter)/10,end-start))
+
+        if all(~np.array([ft_grid,ft_ShiftRows,ft_ShiftCols,ft_ShiftRot])):
             ax.clear()
-            title_text='die number = {:n}   Fit Type = {}{}\nwidth = {:n}   height = {:n}\nx spacing = {:n}   y spacing = {:n}\nwafer diameter = {:n}   edge exclusion = {:n}'\
-                .format(Nfit,['Uniform Grid','Shift Rows','Shift Columns','Shifted & Rotated'][fittype],['',' + Symmetric'][symmetric],width,height,xspacing,yspacing,waferdiameter,edgeexclusionwidth)
-            ax.set_title(title_text,loc='left')
-            
-            for idx,_ in np.ndenumerate(Xcorner):
-                if partial[idx]:
-                    ax.add_patch(Rectangle((Xcorner[idx], Ycorner[idx]),Xextent[idx], Yextent[idx],
-                        edgecolor = 'xkcd:tomato', lw=1,fill=0))
-            for idx,_ in np.ndenumerate(Xcorner):
-                if valid[idx]:
-                    ax.add_patch(Rectangle((Xcorner[idx], Ycorner[idx]),Xextent[idx], Yextent[idx],
-                        edgecolor = 'xkcd:blue', lw=1,facecolor='none'))#face='xkcd:light blue'      
-            ax.add_patch(Circle((0,0),waferdiameter/2,edgecolor = 'k',fill=0))
-            ax.add_patch(Circle((0,0),waferdiameter/2-edgeexclusionwidth,edgecolor = 'k',ls='--',fill=0))
-            ax.set_aspect('equal')
-            ax.autoscale()
             canvas.draw()
+            extraoutput.set('No Fit Types Selected')
             button_execute.config(relief='raised')
+            return
+        
 
-        #%% big button and outputs
-        button_execute=tk.Button(frame1,text='Find Best Fit',command=execute)
-        r+=1
-        button_execute.grid(column = 1, row = r,pady=30,ipadx=20,ipady=10, columnspan=2)
+        valid=np.all(V2**0.5<=ewr,axis=0)
+        partial=np.logical_and(np.any(V2**0.5<=ewr,axis=0),np.logical_not(valid))
+        
+        ax.clear()
+        title_text='die number = {:n}   Fit Type = {}{}\nwidth = {:n}   height = {:n}\nx spacing = {:n}   y spacing = {:n}\nwafer diameter = {:n}   edge exclusion = {:n}'\
+            .format(Nfit,['Uniform Grid','Shift Rows','Shift Columns','Shifted & Rotated'][fittype],['',' + Symmetric'][symmetric],width,height,xspacing,yspacing,waferdiameter,edgeexclusionwidth)
+        ax.set_title(title_text,loc='left')
+        
+        partial_dies = []
+        valid_dies = []
+        for idx,_ in np.ndenumerate(Xcorner):
+            if partial[idx]:
+                ax.add_patch(Rectangle((Xcorner[idx], Ycorner[idx]),Xextent[idx], Yextent[idx],
+                    edgecolor = 'xkcd:tomato', lw=1,fill=0))
+                partial_dies.append([Xcorner[idx], Ycorner[idx],Xextent[idx], Yextent[idx]])
+        for idx,_ in np.ndenumerate(Xcorner):
+            if valid[idx]:
+                ax.add_patch(Rectangle((Xcorner[idx], Ycorner[idx]),Xextent[idx], Yextent[idx],
+                    edgecolor = 'xkcd:blue', lw=1,facecolor='none'))#face='xkcd:light blue'    
+                valid_dies.append([Xcorner[idx], Ycorner[idx],Xextent[idx], Yextent[idx]])  
+        print(len(partial_dies))
+        print(len(valid_dies))
+        ax.add_patch(Circle((0,0),waferdiameter/2,edgecolor = 'k',fill=0))
+        ax.add_patch(Circle((0,0),waferdiameter/2-edgeexclusionwidth,edgecolor = 'k',ls='--',fill=0))
+        ax.set_aspect('equal')
+        ax.autoscale()
+        canvas.draw()
+        button_execute.config(relief='raised')
 
-        extraoutput= tk.StringVar()
-        label_extraoutput = tk.Label(frame1,textvariable = extraoutput)
-        r+=1
-        label_extraoutput.grid(column = 1, row = r, columnspan=2)
+    #%% big button and outputs
+    button_execute=tk.Button(frame1,text='Find Best Fit',command=execute)
+    r+=1
+    button_execute.grid(column = 1, row = r,pady=30,ipadx=20,ipady=10, columnspan=2)
 
-        label_note = tk.Label(frame1,text = note)
-        r+=1
-        label_note.grid(column = 1, row = r,columnspan=2,rowspan=7,pady=20)
+    extraoutput= tk.StringVar()
+    label_extraoutput = tk.Label(frame1,textvariable = extraoutput)
+    r+=1
+    label_extraoutput.grid(column = 1, row = r, columnspan=2)
 
-        #%% excute window
-        root.mainloop()
+    label_note = tk.Label(frame1,text = note)
+    r+=1
+    label_note.grid(column = 1, row = r,columnspan=2,rowspan=7,pady=20)
+
+    #%% excute window
+    root.mainloop()
 
 
 if __name__ == "__main__":
-    dpw = DiesPerWafer()
-    dpw.run_ui()
+    run_ui()
