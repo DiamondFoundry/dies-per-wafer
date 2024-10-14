@@ -463,7 +463,7 @@ class DiesPerWaferCalculator(ABC):
             "xspacing": float(self.xspacing),
             "yspacing": float(self.yspacing),
             "edge_exclusion_width": float(self.edgeexclusionwidth),
-            "input_wafer_diameter": float(self.waferdiameter)
+            "input_wafer_diameter": float(self.waferdiameter),
         }
         # Outputs
         json_data["final_wafer_diameter"] = float(self.final_diameter)
