@@ -433,14 +433,10 @@ class DiesPerWaferCalculator(ABC):
         print(final_offsets)
         print("Solution diameter:")
         print(min_diameter)
-        area_utilization = (
-            Nfit * self.width * self.height * 4 * self.waferdiameter**-2 / np.pi
-        )
 
         Xcorner, Ycorner, Xextent, Yextent = self.CalculatePositions(
             final_offsets, fittype
         )
-        # Xcen,Ycen=calcXYcen(final_offsets,fittype)
         V2 = self.constructV2(final_offsets, fittype)
 
         self.valid = np.all(V2**0.5 <= self.ewr, axis=0)
@@ -453,6 +449,10 @@ class DiesPerWaferCalculator(ABC):
         self.Ycorner = Ycorner.astype(float)
         self.Xextent = Xextent.astype(float)
         self.Yextent = Yextent.astype(float)
+        self.Nfit = Nfit
+        self.start = start
+        self.end = end
+        self.V2 = V2
 
     def format_json_obj(self):
         json_data = {}

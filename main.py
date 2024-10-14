@@ -1,7 +1,7 @@
 import functions_framework
 import google.cloud.logging
 import logging
-from opt.dies_per_wafer_latest import DiesPerWaferCalculator
+from opt.dies_per_wafer_calculator import DiesPerWaferCalculator
 
 logging_client = google.cloud.logging.Client()
 logging_client.setup_logging()
