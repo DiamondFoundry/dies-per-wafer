@@ -1,6 +1,6 @@
 steps:
 - name: 'gcr.io/cloud-builders/gcloud'
-  args: ['functions', 'deploy', 'dies-per-wafer', '--trigger-http', '--gen2', '--source=.', '--region', 'us-west1', '--runtime', 'python310', '--entry-point', 'calculate_dies_per_wafer']
+  args: ['functions', 'deploy', 'dies-per-wafer', '--trigger-http', '--gen2', '--source=.', '--region', 'us-west1', '--memory', '2GiB', '--runtime', 'python312', '--entry-point', 'calculate_dies_per_wafer']
 - name: 'gcr.io/cloud-builders/docker'
   script: |
     docker build -t us-west1-docker.pkg.dev/$PROJECT_ID/df-ar/dies-per-wafer-image .
